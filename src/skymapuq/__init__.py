@@ -1,3 +1,3 @@
-from .example_module import greetings, meaning
+from .skymapuq import SkyMapUQ
 
-__all__ = ["greetings", "meaning"]
+__all__ = ["SkyMapUQ"]
