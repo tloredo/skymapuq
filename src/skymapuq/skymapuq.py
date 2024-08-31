@@ -18,8 +18,26 @@ from numpy import *
 import healpy as hp
 from ligo.skymap.io.fits import read_sky_map
 from ligo.skymap import postprocess
+import ligo.skymap.plot.allsky as allsky
 
 from .utils import Timer, MomentAccumulator
+
+
+
+class UQSummary:
+    """
+    Container for uncertainty quantification summaries.
+    """
+
+    def __init__(self, hpd_50, hpd_68p3, hpd_90, hpd_95, ex_area, ex_area_level,
+        info_area) -> None:
+        self.hpd_50 = hpd_50
+        self.hpd_68p3 = hpd_68p3
+        self.hpd_90 = hpd_90
+        self.hpd_95 = hpd_95
+        self.ex_area = ex_area
+        self.ex_area_level = ex_area_level
+        self.info_area = info_area
 
 
 class SkyMapUQ:
@@ -48,7 +66,7 @@ class SkyMapUQ:
         self.nside = hp.npix2nside(self.n_px)  # lateral resolution
         sky_area = 4*pi * (180/pi)**2  # sq deg over sky
         # self.sd_px = sky_area / npix  # square degrees per pixel
-        self.sd_px = hp.nside2pixarea(self.nside, degrees=True)
+        self.sd_px = float(hp.nside2pixarea(self.nside, degrees=True))
         self.sam_px = 60**2 * self.sd_px  # sq arcmin per pixel
         self.sas_px = 3600**2 * self.sd_px  # sq arsec per pixel
 
@@ -73,7 +91,9 @@ class SkyMapUQ:
         # Information-theoretic summaries:
         with Timer('Info theory calculations') as timer:
             self.entropy = -nansum(self.p_ddens[:self.n_nz]*log2(self.p_ddens[:self.n_nz]))
+            self.entropy = float(self.entropy)
             self.info_range = 2**self.entropy
+            self.info_area = self.sd_px*self.info_range
 
     def _init_search(self):
         """Compute conditional search probabilities for each pixel,
@@ -109,7 +129,28 @@ class SkyMapUQ:
             self.denoms2 = cumsum(q) - arange(len(q))
             self.p_search2[1:] /= self.denoms2
 
-    def mollview(self, title=None):
+    def mollview(self, fig=None, title=None):
+        if title is None:
+            if self.name is None:
+                hp.mollview(self.hpx, fig=fig)
+            else:
+                hp.mollview(self.hpx, fig=fig, title=self.name)
+        else:
+            hp.mollview(self.hpx, fig=fig, title=title)
+        hp.graticule(**{'color':'gray'})
+
+    def mollview_ax(self, title=None):
+        if title is None:
+            if self.name is None:
+                hp.mollview(self.hpx, hold=True)
+            else:
+                hp.mollview(self.hpx, title=self.name, hold=True)
+        else:
+            hp.mollview(self.hpx, title=title, hold=True)
+        hp.graticule(**{'color':'gray'})
+
+    def mollviewc(self, hpd_levels=None, title=None):
+        # TODO:  Failed attempt to add contours.
         if title is None:
             if self.name is None:
                 hp.mollview(self.hpx)
@@ -118,6 +159,8 @@ class SkyMapUQ:
         else:
             hp.mollview(self.hpx, title=title)
         hp.graticule(**{'color':'gray'})
+        ax = gca()
+        ax.contour_hpx(self.hpx, nested=True, levels=4, colors='r')
 
     def px2celestial(self, ipx):
         """
@@ -177,8 +220,8 @@ class SkyMapUQ:
         """
         # Candidate number of searches:
         n = arange(1, self.n_px+1)
-        xn = sum(n*self.p_ddens)
-        return xn, xn*self.sd_px, self.p_ddens[0:int(xn)+1].sum()
+        xn = float(sum(n*self.p_ddens))
+        return xn, xn*self.sd_px, float(self.p_ddens[0:int(xn)+1].sum())
 
     def effort_histo(self, edges):
         """
@@ -227,3 +270,12 @@ class SkyMapUQ:
                     print(i, n)
             accum.done()
         return accum
+
+    def uq_summary(self):
+        hpd_50 = float(self.hpdr_area(.5))
+        hpd_68p3 = float(self.hpdr_area(.683))
+        hpd_90 = float(self.hpdr_area(.9))
+        hpd_95 = float(self.hpdr_area(.95))
+        ex_px, ex_area, ex_area_level = self.ex_search_effort()
+        return UQSummary(hpd_50, hpd_68p3, hpd_90, hpd_95, ex_area, ex_area_level,
+            self.info_area)
